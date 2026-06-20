@@ -204,8 +204,8 @@ export class Device implements EventSimulator {
      */
     async ensureFullscreen(hap: Hap): Promise<boolean> {
         try {
-            // Wait a bit for the app to fully load after launch
-            await new Promise((resolve) => setTimeout(resolve, 1000));
+            // Wait for the app to fully stabilize after launch
+            await new Promise((resolve) => setTimeout(resolve, 5000));
             
             // Get all pages from dumpViewTree, not just the "current" one
             // because the app window might not be the largest page yet
@@ -234,7 +234,24 @@ export class Device implements EventSimulator {
                 return false;
             }
             
-            const page = targetPage;
+            let page = targetPage;
+
+            const focusedInput = page.getComponents().find((component) => {
+                return component.focused === true && component.inputable;
+            });
+
+            if (focusedInput) {
+                logger.info(
+                    `Focused input detected before fullscreen check, id=${focusedInput.id}, key=${focusedInput.key}, type=${focusedInput.type}. Sending Escape to dismiss focus.`
+                );
+                try {
+                    await this.inputKey(KeyCode.KEYCODE_ESCAPE);
+                    await new Promise((resolve) => setTimeout(resolve, 300));
+                    page = await this.getCurrentPage(hap);
+                } catch (err) {
+                    logger.warn('Failed to dismiss focused input before fullscreen check', err);
+                }
+            }
             
             // Check if the app is stopped or in background
             if (page.isStop() || page.isBackground()) {
@@ -261,34 +278,25 @@ export class Device implements EventSimulator {
                 `Application is not fullscreen. Window: ${windowWidth}x${windowHeight}, Screen: ${screenWidth}x${screenHeight}. Attempting to maximize.`
             );
 
-            // Find the EnhanceMaximizeBtn component (similar to closeKeyboard method)
-            // Debug: log page bundle name and component count
             const pageBundleName = page.getBundleName();
             const components = page.getComponents();
-            logger.debug(`ensureFullscreen: page bundleName=${pageBundleName}, hap bundleName=${hap.bundleName}, component count=${components.length}`);
-            
-            let maximizeBtnFound = false;
-            for (const component of components) {
-                // Debug: log components with id or key containing "Enhance" or "Maximize"
-                if (component.id && (component.id.includes('Enhance') || component.id.includes('Maximize'))) {
-                    logger.debug(`Found component with id=${component.id}, key=${component.key}, type=${component.type}`);
-                }
-                if (component.key && (component.key.includes('Enhance') || component.key.includes('Maximize'))) {
-                    logger.debug(`Found component with id=${component.id}, key=${component.key}, type=${component.type}`);
-                }
-                
-                if (component.id === 'EnhanceMaximizeBtn' || component.key === 'EnhanceMaximizeBtn') {
-                    logger.info(`Found EnhanceMaximizeBtn, id=${component.id}, key=${component.key}, bounds=${JSON.stringify(component.bounds)}, clicking to maximize`);
-                    this.sendEvent(new TouchEvent(component));
-                    maximizeBtnFound = true;
-                    break;
-                }
-            }
+            logger.debug(
+                `ensureFullscreen: page bundleName=${pageBundleName}, hap bundleName=${hap.bundleName}, component count=${components.length}`
+            );
 
-            if (!maximizeBtnFound) {
+            const maximizeBtn = components.find((component) => {
+                return component.id === 'EnhanceMaximizeBtn' || component.key === 'EnhanceMaximizeBtn';
+            });
+
+            if (!maximizeBtn) {
                 logger.warn(`EnhanceMaximizeBtn not found. Searched ${components.length} components in page with bundleName=${pageBundleName}`);
                 return false;
             }
+
+            logger.info(
+                `Found EnhanceMaximizeBtn, id=${maximizeBtn.id}, key=${maximizeBtn.key}, bounds=${JSON.stringify(maximizeBtn.bounds)}, clicking to maximize`
+            );
+            await this.sendEvent(new TouchEvent(maximizeBtn));
             
             // Wait for the window to maximize
             await new Promise((resolve) => setTimeout(resolve, 500));
@@ -436,13 +444,23 @@ export class Device implements EventSimulator {
     }
 
     /**
+     * Only inspect the window control region for 2in1 clicks.
+     */
+    private shouldInspectControlButtons(point: Point): boolean {
+        const screenWidth = this.getWidth();
+        const screenHeight = this.getHeight();
+
+        return point.x >= Math.floor(screenWidth * 0.75) && point.y <= Math.floor(screenHeight * 0.25);
+    }
+
+    /**
      * Simulate a single click
      * @param point
      */
     async click(point: Point): Promise<void> {
         const deviceType = this.getDeviceType().trim().toLowerCase();
 
-        if (deviceType === '2in1') {
+        if (deviceType === '2in1' && this.shouldInspectControlButtons(point)) {
             try {
                 const page = await this.dumpViewTree();
                 const components = page.getComponents();
@@ -467,7 +485,7 @@ export class Device implements EventSimulator {
     async doubleClick(point: Point): Promise<void> {
         const deviceType = this.getDeviceType().trim().toLowerCase();
 
-        if (deviceType === '2in1') {
+        if (deviceType === '2in1' && this.shouldInspectControlButtons(point)) {
             try {
                 const page = await this.dumpViewTree();
                 const components = page.getComponents();
@@ -492,7 +510,7 @@ export class Device implements EventSimulator {
     async longClick(point: Point): Promise<void> {
         const deviceType = this.getDeviceType().trim().toLowerCase();
 
-        if (deviceType === '2in1') {
+        if (deviceType === '2in1' && this.shouldInspectControlButtons(point)) {
             try {
                 const page = await this.dumpViewTree();
                 const components = page.getComponents();
