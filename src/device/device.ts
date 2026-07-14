@@ -87,6 +87,10 @@ export class Device implements EventSimulator {
         return this.driverCtx!.driver;
     }
 
+    getOptions(): FuzzOptions {
+        return this.options;
+    }
+
     async disconnect(): Promise<void> {
         await this.teardownDriver();
         if (this.options.coverage && this.coverage) {
@@ -612,7 +616,7 @@ export class Device implements EventSimulator {
      * @param hap
      * @returns
      */
-    async getCurrentPage(hap: Hap): Promise<Page> {
+    async getCurrentPage(hap: Hap, strictForegroundOnly: boolean = false): Promise<Page> {
         // Get all pages from dumpLayout to find the correct one
         let layout = await this.driverCtx!.driver.dumpLayout();
         let pages = PageBuilder.buildPagesFromLayout(layout);
@@ -631,6 +635,12 @@ export class Device implements EventSimulator {
         
         // If no matching page found, use dumpViewTree logic (sort by height)
         if (!page) {
+            if (strictForegroundOnly) {
+                throw new Error(
+                    `Unable to find a foreground page for bundle ${hap.bundleName || '<unknown>'}. ` +
+                    'Please bring the target app to foreground before starting haptest.'
+                );
+            }
             pages.sort((a: Page, b: Page) => {
                 return b.getRoot().getHeight() - a.getRoot().getHeight();
             });
@@ -664,6 +674,13 @@ export class Device implements EventSimulator {
             let snapshot = this.getSnapshot(true);
             page.setSnapshot(snapshot);
             return page;
+        }
+
+        if (strictForegroundOnly) {
+            throw new Error(
+                `Current foreground page bundle ${pageBundleName} does not match target bundle ${hap.bundleName}. ` +
+                'Please switch to the target app before starting haptest.'
+            );
         }
 
         let runningState = this.getHapRunningState(hap);

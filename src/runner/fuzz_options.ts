@@ -19,6 +19,7 @@ export interface FuzzOptions {
     coverage: boolean;
     policyName: string;
     output: string;
+    startFromCurrentPage?: boolean;
     bundleName?: string;
     sourceRoot?: string;
     hapFile?: string;

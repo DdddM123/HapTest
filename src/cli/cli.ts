@@ -89,6 +89,7 @@ async function runFuzzCommand(options: any): Promise<void> {
             hap,
             policyName: options.policy,
             output: outputDir,
+            startFromCurrentPage: options.fromCurrentPage,
             coverage: options.coverage,
             reportRoot: options.report,
             excludes: options.exclude,
@@ -218,6 +219,7 @@ async function runCompareCommand(options: any): Promise<void> {
         .option('-t --target [connectkey]', 'hdc connectkey', undefined)
         .option('-c --coverage', 'enable coverage', false)
         .option('--report [report root]', 'report root')
+        .option('--from-current-page', 'start haptest from the simulator current foreground page', false)
         .option('--debug', 'debug log level', false)
         .option('--exclude [excludes...]', 'exclude bundle name')
         .option('--llm', 'start llm policy', false)
