@@ -49,15 +49,12 @@ export class Device implements EventSimulator {
     private displaySize?: Point;
     private udid: string;
     private options: FuzzOptions;
-    private readonly is2in1Device: boolean;
     private arkuiInspector: ArkUIInspector;
     private lastFaultlogs: Set<string>;
     private driverCtx?: DriverContext;
 
     constructor(options: FuzzOptions) {
         this.options = options;
-        const rawDeviceTypeOpt = options && options.deviceType ? String(options.deviceType) : '';
-        this.is2in1Device = rawDeviceTypeOpt.trim().toLowerCase() === '2in1';
         this.hdc = new Hdc(options.connectkey);
         this.output = path.join(path.resolve(options.output), moment().format('YYYY-MM-DD-HH-mm-ss'));
         this.udid = this.hdc.getDeviceUdid();
@@ -85,6 +82,11 @@ export class Device implements EventSimulator {
 
     getDriver(): ArkUiDriver {
         return this.driverCtx!.driver;
+    }
+
+    private get is2in1Device(): boolean {
+        const rawDeviceTypeOpt = this.options && this.options.deviceType ? String(this.options.deviceType) : '';
+        return rawDeviceTypeOpt.trim().toLowerCase() === '2in1';
     }
 
     getOptions(): FuzzOptions {

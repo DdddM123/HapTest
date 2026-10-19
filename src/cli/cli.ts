@@ -24,6 +24,8 @@ import { HapTestLogger, LOG_LEVEL } from '../utils/logger';
 import { startUIViewerServer } from '../ui/ui_viewer_server';
 import { CompareDetector } from '../compare/types';
 import { compareDynamicLogs } from '../utils/dynamic_compare';
+import { runMultiFuzzCommand } from './multi_runner';
+import { runSyncCommand } from '../runner/sync_runner';
 
 const logger = getLogger();
 
@@ -96,6 +98,7 @@ async function runFuzzCommand(options: any): Promise<void> {
             llm: options.llm,
             simK: options.simK,
             staticConfig: options.staticConfig,
+            deviceType: options.deviceType,
         };
 
         const envChecker = new EnvChecker(fuzzOption);
@@ -163,6 +166,16 @@ async function runCompareCommand(options: any): Promise<void> {
     });
 }
 
+async function runMultiDeviceCommand(options: any): Promise<void> {
+    await runMultiFuzzCommand(options);
+    process.exit();
+}
+
+async function runSyncDeviceCommand(options: any): Promise<void> {
+    await runSyncCommand(options);
+    process.exit();
+}
+
 (async function (): Promise<void> {
     const packageCfg = parsePackageConfig();
 
@@ -220,6 +233,7 @@ async function runCompareCommand(options: any): Promise<void> {
         .option('-c --coverage', 'enable coverage', false)
         .option('--report [report root]', 'report root')
         .option('--from-current-page', 'start haptest from the simulator current foreground page', false)
+        .option('--deviceType <name>', 'override detected device type for the worker')
         .option('--debug', 'debug log level', false)
         .option('--exclude [excludes...]', 'exclude bundle name')
         .option('--llm', 'start llm policy', false)
@@ -230,6 +244,56 @@ async function runCompareCommand(options: any): Promise<void> {
                 await runFuzzCommand(cmdOptions);
             } catch (err) {
                 logger.error('haptest fuzz command failed.', err);
+                process.exit(1);
+            }
+        });
+
+    program
+        .command('multi')
+        .description('Run HapTest concurrently on multiple simulators or devices')
+        .requiredOption('-i, --hap <item>', 'single HAP bundle name, HAP file path, or HAP project source root shared by all targets')
+        .requiredOption('-d, --devices <file>', 'JSON config file that lists multi-device targets')
+        .option('-o --output <dir>', 'base output dir', 'out/multi')
+        .option('--policy <policyName>', 'policy name', 'manu')
+        .option('-c --coverage', 'enable coverage', false)
+        .option('--report [report root]', 'report root')
+        .option('--from-current-page', 'start haptest from the simulator current foreground page', false)
+        .option('--deviceType <name>', 'override detected device type for each worker')
+        .option('--debug', 'debug log level', false)
+        .option('--exclude [excludes...]', 'exclude bundle name')
+        .option('--llm', 'start llm policy', false)
+        .option('--simK <number>', '', '8')
+        .option('--staticConfig <file>', 'Path to static configuration file')
+        .action(async (cmdOptions) => {
+            try {
+                await runMultiDeviceCommand(cmdOptions);
+            } catch (err) {
+                logger.error('haptest multi command failed.', err);
+                process.exit(1);
+            }
+        });
+
+    program
+        .command('sync')
+        .description('Run the same actions in lockstep on two simulators or devices and return whether they stay consistent')
+        .requiredOption('-i, --hap <item>', 'single HAP bundle name, HAP file path, or HAP project source root shared by both devices')
+        .requiredOption('--left <connectkey>', 'connectkey of the left device')
+        .requiredOption('--right <connectkey>', 'connectkey of the right device')
+        .option('-o --output <dir>', 'base output dir', 'out/sync')
+        .option('--policy <policyName>', 'policy name', 'manu')
+        .option('-c --coverage', 'enable coverage', false)
+        .option('--report [report root]', 'report root')
+        .option('--from-current-page', 'start from the current foreground page of both devices', true)
+        .option('--deviceType <name>', 'override detected device type for both devices')
+        .option('--debug', 'debug log level', false)
+        .option('--exclude [excludes...]', 'exclude bundle name')
+        .option('--simK <number>', '', '8')
+        .option('--staticConfig <file>', 'Path to static configuration file')
+        .action(async (cmdOptions) => {
+            try {
+                await runSyncDeviceCommand(cmdOptions);
+            } catch (err) {
+                logger.error('haptest sync command failed.', err);
                 process.exit(1);
             }
         });

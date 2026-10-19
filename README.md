@@ -52,6 +52,10 @@ Options:
 -``` --llm:``` Enable the LLM-based enhanced exploration module; can be combined with static_guided policy for a hybrid strategy.
 - ```--from-current-page:``` Start haptest from the simulator's current foreground page instead of forcing an initial stop/start flow.
 - ```--simk:``` Set the UI similarity threshold for tarpit detection.
+- ```--target```: Pass the HDC connectkey of the simulator/device you want to run against. You can list available devices and their connectkeys with:
+  ```
+  hdc list targets -v
+  ```
 
 ### 2. Using DevEco simulator to run HAP  
 
@@ -82,6 +86,7 @@ haptest -i com.example.demo --policy static_guided --staticConfig config.json --
 
 ### 6. Inspect UI hierarchy with the web viewer
 1. Ensure your HarmonyOS device or emulator is reachable through `hdc`.
+  - If you need the connectkey, run `hdc list targets -v` and copy the `serial` value of the connected device.
 2. Start the UI viewer service (all arguments are optional unless you need to force a specific target):
    ```
    haptest ui-viewer
@@ -93,6 +98,32 @@ haptest -i com.example.demo --policy static_guided --staticConfig config.json --
 4. Click **Connect Device** to let the backend auto-detect the connected device. Once connected, click **Fetch Current Page** to capture the latest screenshot and hierarchy for the active foreground app.
 5. Explore the hierarchy tree, inspect widget metadata, or copy XPath snippets as needed. Use **Fetch Current Page** again any time you want to refresh the view.
 6. Press `Ctrl+C` in the terminal to stop the service when finished.
+
+### 7. Run on multiple simulators or devices in parallel
+1. Prepare a JSON file, for example `multi-devices.json`:
+   ```json
+   {
+     "targets": [
+       { "connectkey": "phone-001", "name": "phone" },
+       { "connectkey": "pc-001", "name": "pc", "output": "out/multi/pc" }
+     ]
+   }
+   ```
+  - Each target's `connectkey` should come from `hdc list targets -v`.
+2. Start one shared hap run across all targets:
+   ```
+   haptest multi -i com.huawei.hmos.browser --devices multi-devices.json --from-current-page -o out/multi
+   ```
+3. Each target runs in its own child process and writes to its own output directory.
+
+### 8. Run two simulators in lockstep and compare consistency
+1. Make sure both simulators are already on the same app and the same page.
+2. Run the sync command with two connectkeys:
+  ```
+  haptest sync -i com.huawei.hmos.browser --left phone-001 --right pc-001 --from-current-page -o out/sync
+  ```
+3. The command executes the same step on both devices, compares page signatures after each step, and writes the final result to `out/sync/sync-result.json`.
+4. If the pages diverge at any step, the command stops both sessions and returns `consistent: false`.
 
 ## Contribution
 
