@@ -37,10 +37,9 @@ export class Hdc {
 
     constructor(connectkey: string | undefined = undefined) {
         this.connectkey = connectkey;
-        this.initDeviceEnv();
     }
 
-    private initDeviceEnv(): void {
+    private ensureMemdumper(): void {
         if (!this.hasFile(MEMDUMPER)) {
             let memdumpFile = path.join(__dirname, '..', '..', 'res/memdumper/memdumper');
             this.sendFile(memdumpFile, MEMDUMPER);
@@ -66,7 +65,7 @@ export class Hdc {
 
     hasFile(remote: string): boolean {
         let output = this.excuteShellCommandSync(`ls ${remote}`);
-        return output.indexOf('No such file') === 0;
+        return !/No such file or directory|No such file/i.test(output);
     }
 
     mkDir(remote: string): void {
@@ -226,6 +225,7 @@ export class Hdc {
      * @param maps optional pre-fetched maps, if provided, will skip getProcMaps call
      */
     memdump(pid: number, remoteOutput: string, fileReg: RegExp, maps?: { start: string; end: string; file: string }[]): void {
+        this.ensureMemdumper();
         let idxMap: Map<string, number> = new Map();
         if (!maps) {
             maps = this.getProcMaps(pid, fileReg);

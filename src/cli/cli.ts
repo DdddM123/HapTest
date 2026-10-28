@@ -26,8 +26,15 @@ import { CompareDetector } from '../compare/types';
 import { compareDynamicLogs } from '../utils/dynamic_compare';
 import { runMultiFuzzCommand } from './multi_runner';
 import { runSyncCommand } from '../runner/sync_runner';
+import { startScreenViewerServer } from '../ui/screen_viewer_server';
 
 const logger = getLogger();
+
+// Keep Node's default crash behavior while ensuring fatal async/socket errors
+// are written to haptest.log before the process exits.
+process.on('uncaughtExceptionMonitor', (err, origin) => {
+    logger.fatal(`Uncaught process exception (origin=${origin}).`, err);
+});
 
 interface BaseOptions {
     debug?: boolean;
@@ -174,6 +181,16 @@ async function runMultiDeviceCommand(options: any): Promise<void> {
 async function runSyncDeviceCommand(options: any): Promise<void> {
     await runSyncCommand(options);
     process.exit();
+async function runScreenCommand(options: any): Promise<void> {
+    const outputDir = path.resolve(options.output ?? 'out/screen');
+    fs.mkdirSync(outputDir, { recursive: true });
+    HapTestLogger.configure(path.join(outputDir, 'haptest.log'), resolveLogLevel(options));
+
+    const port = Number(options.port);
+    if (Number.isNaN(port) || port <= 0 || port > 65535) {
+        throw new Error(`Invalid port: ${options.port}`);
+    }
+    await startScreenViewerServer({ connectKey: options.target, port });
 }
 
 (async function (): Promise<void> {
@@ -190,7 +207,7 @@ async function runSyncDeviceCommand(options: any): Promise<void> {
         .option('--debug', 'debug log level', false)
         .action(async (cmdOptions) => {
             try {
-                await runUIViewerCommand(cmdOptions, packageCfg.version);
+                await runUIViewerCommand({ ...program.opts(), ...cmdOptions }, packageCfg.version);
             } catch (err) {
                 logger.error('Failed to start ui-viewer command.', err);
                 process.exit(1);
@@ -220,6 +237,20 @@ async function runSyncDeviceCommand(options: any): Promise<void> {
                 await runCompareCommand(cmdOptions);
             } catch (err) {
                 logger.error('haptest compare command failed.', err);
+            }
+        });
+    program
+        .command('screen')
+        .description('Stream the device screen to a browser')
+        .option('-t, --target <connectkey>', 'HDC target serial; inferred when exactly one device is connected')
+        .option('-p, --port <port>', 'HTTP port', '7790')
+        .option('-o, --output <dir>', 'output dir', 'out/screen')
+        .option('--debug', 'debug log level', false)
+        .action(async (cmdOptions) => {
+            try {
+                await runScreenCommand({ ...program.opts(), ...cmdOptions });
+            } catch (err) {
+                logger.error('Failed to start screen command.', err);
                 process.exit(1);
             }
         });
