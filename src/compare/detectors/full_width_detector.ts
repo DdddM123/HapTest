@@ -45,7 +45,7 @@ export async function detectFullWidthIssues(
         const mobileComponents = group.mobileComponents;
         const twoInOneComponents = group.twoInOneComponents;
         if (
-            hasFullWidthComponent(mobileComponents, mobileRect, tolerance) &&
+            hasFullWidthComponent(mobileComponents, mobileRect, tolerance) !==
             hasFullWidthComponent(twoInOneComponents, twoInOneRect, tolerance)
         ) {
             issues.push({

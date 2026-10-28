@@ -69,7 +69,7 @@ export class EventAction {
                 event: this.transition.event,
                 to: this.transition.to,
                 fromContentSig: this.transition.from.getContentSig(),
-                toContentSig: this.transition.from.getContentSig(),
+                toContentSig: this.transition.to.getContentSig(),
             },
             { groups: ['Content'] }
         );

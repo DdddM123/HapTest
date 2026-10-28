@@ -1,4 +1,5 @@
 import { Page } from '../../model/page';
+import { Component } from '../../model/component';
 import { Point } from '../../model/point';
 import {
     AiComponentMatcher,
@@ -101,7 +102,93 @@ export async function detectComponentDiffIssues(
             });
         }
     }
+    issues.push(...detectUnmatchedInteractiveComponents(
+        pageIndex,
+        mobileParentMap,
+        twoInOneParentMap,
+        mobileScreenshot,
+        twoInOneScreenshot,
+        matchedGroups
+    ));
     return issues;
+}
+
+function detectUnmatchedInteractiveComponents(
+    pageIndex: number,
+    mobileParentMap: Map<string, ComponentWithParent[]>,
+    twoInOneParentMap: Map<string, ComponentWithParent[]>,
+    mobileScreenshot: string,
+    twoInOneScreenshot: string,
+    matchedGroups: Array<{ mobileKey: string; twoInOneKey: string; mobileComponents: ComponentWithParent[]; twoInOneComponents: ComponentWithParent[] }>
+): CompareComponentDiffIssue[] {
+    const matchedMobile = new Set<Component>();
+    const matchedTwoInOne = new Set<Component>();
+    for (const group of matchedGroups) {
+        const pairCount = Math.min(group.mobileComponents.length, group.twoInOneComponents.length);
+        for (let index = 0; index < pairCount; index += 1) {
+            matchedMobile.add(group.mobileComponents[index].component);
+            matchedTwoInOne.add(group.twoInOneComponents[index].component);
+        }
+    }
+
+    const issues: CompareComponentDiffIssue[] = [];
+    const allKeys = new Set([...mobileParentMap.keys(), ...twoInOneParentMap.keys()]);
+    for (const key of allKeys) {
+        const mobileComponents = mobileParentMap.get(key) ?? [];
+        const twoInOneComponents = twoInOneParentMap.get(key) ?? [];
+        const mobileExtras = mobileComponents.filter((item) => isInteractive(item.component) && !matchedMobile.has(item.component));
+        const twoInOneExtras = twoInOneComponents.filter((item) => isInteractive(item.component) && !matchedTwoInOne.has(item.component));
+        const difference = mobileExtras.length - twoInOneExtras.length;
+        if (difference === 0) {
+            continue;
+        }
+        if (difference > 0) {
+            for (const item of mobileExtras.slice(twoInOneExtras.length)) {
+                issues.push(buildPresenceIssue(
+                    pageIndex,
+                    item,
+                    'present',
+                    'missing',
+                    mobileScreenshot,
+                    twoInOneScreenshot
+                ));
+            }
+        } else {
+            for (const item of twoInOneExtras.slice(mobileExtras.length)) {
+                issues.push(buildPresenceIssue(
+                    pageIndex,
+                    item,
+                    'missing',
+                    'present',
+                    mobileScreenshot,
+                    twoInOneScreenshot
+                ));
+            }
+        }
+    }
+    return issues;
+}
+
+function buildPresenceIssue(
+    pageIndex: number,
+    item: ComponentWithParent,
+    mobileValue: string,
+    twoInOneValue: string,
+    mobileScreenshot: string,
+    twoInOneScreenshot: string
+): CompareComponentDiffIssue {
+    return {
+        pageIndex,
+        componentName: item.componentName,
+        parentName: item.parentName,
+        mobileScreenshot,
+        twoInOneScreenshot,
+        diffs: {
+            structuralDiffs: [{ field: 'interactive-component-presence', mobileValue, twoInOneValue }],
+            statusDiffs: [],
+            textDiffs: [],
+        },
+    };
 }
 
 function groupFieldDiffs(fieldDiffs: CompareComponentFieldDiff[]): CompareComponentDiffGroups {
@@ -175,7 +262,51 @@ function collectFieldDiffs(
         });
     }
 
+    diffs.push(...collectChildStructureDiff(mobileComponent.component, twoInOneComponent.component));
+
     return diffs;
+}
+
+function collectChildStructureDiff(left: Component, right: Component): CompareComponentFieldDiff[] {
+    const leftChildren = left.children.map(getChildMatchLabel);
+    const rightChildren = right.children.map(getChildMatchLabel);
+    const leftSet = [...leftChildren].sort();
+    const rightSet = [...rightChildren].sort();
+    const diffs: CompareComponentFieldDiff[] = [];
+    if (JSON.stringify(leftSet) !== JSON.stringify(rightSet)) {
+        diffs.push({
+            field: 'child-component-set',
+            mobileValue: JSON.stringify(leftSet),
+            twoInOneValue: JSON.stringify(rightSet),
+        });
+    }
+    if (JSON.stringify(leftChildren) !== JSON.stringify(rightChildren)) {
+        diffs.push({
+            field: 'child-component-order',
+            mobileValue: JSON.stringify(leftChildren),
+            twoInOneValue: JSON.stringify(rightChildren),
+        });
+    }
+    return diffs;
+}
+
+function getChildMatchLabel(component: Component): string {
+    const identity = component.key?.trim() || component.id?.trim();
+    if (identity) {
+        return `${component.type ?? 'unknown'}::${identity}`;
+    }
+    const text = (component.text ?? component.hint ?? '').trim();
+    return text ? `${component.type ?? 'unknown'}::text:${text}` : `type:${component.type ?? 'unknown'}`;
+}
+
+function isInteractive(component: Component): boolean {
+    if (component.clickable === true || component.longClickable === true || component.checkable === true) {
+        return true;
+    }
+    if (component.clickable === false && component.longClickable === false && component.checkable === false) {
+        return false;
+    }
+    return /button|checkbox|radio|input|textfield|textinput|search|slider|switch|tab|menu/i.test(component.type ?? '');
 }
 
 function snapshotComparableFields(componentWithParent: ComponentWithParent): ComparableComponentFields {

@@ -20,6 +20,7 @@ import { detectAspectRatioIssues } from '../compare/detectors/ratio_detector';
 import { detectFullWidthIssues } from '../compare/detectors/full_width_detector';
 import { detectSceneIssues } from '../compare/detectors/scene_detector';
 import { detectComponentDiffIssues } from '../compare/detectors/diff_detector';
+import { detectDynamicPageIssues, detectDynamicTransitionIssues } from '../compare/detectors/dynamic_detector';
 import { OpenAiComponentMatcher } from '../compare/ai_component_matcher';
 import {
     buildPageSequence,
@@ -30,6 +31,7 @@ import {
 import {
     CompareAspectRatioIssue,
     CompareComponentDiffIssue,
+    CompareDynamicIssue,
     CompareDetector,
     CompareIssue,
     CompareOptions,
@@ -58,6 +60,7 @@ export async function compareDynamicLogs(options: CompareOptions): Promise<Compa
     const runAspectRatio = detector === 'all' || detector === 'ratio';
     const runScene = detector === 'all' || detector === 'scene';
     const runDiff = detector === 'all' || detector === 'diff';
+    const runDynamic = detector === 'all' || detector === 'dynamic';
     const mobileDir = options.mobileDir ?? 'mobile';
     const twoInOneDir = options.twoInOneDir ?? '2in1';
     const tolerance = Number.isFinite(options.fullWidthTolerance) ? options.fullWidthTolerance! : DEFAULT_TOLERANCE;
@@ -104,11 +107,48 @@ export async function compareDynamicLogs(options: CompareOptions): Promise<Compa
     const aspectRatioIssues: CompareAspectRatioIssue[] = [];
     const sceneIssues: CompareSceneIssue[] = [];
     const componentDiffIssues: CompareComponentDiffIssue[] = [];
+    const dynamicIssues: CompareDynamicIssue[] = [];
+    if (runDynamic) {
+        appendSequenceMismatch(
+            dynamicIssues,
+            mobilePages.length,
+            twoInOnePages.length,
+            'pages',
+            mobileScreenshots,
+            twoInOneScreenshots
+        );
+        appendSequenceMismatch(
+            dynamicIssues,
+            mobileTransitions.length,
+            twoInOneTransitions.length,
+            'transitions',
+            mobileScreenshots,
+            twoInOneScreenshots
+        );
+        appendSequenceMismatch(
+            dynamicIssues,
+            mobileScreenshots.length,
+            twoInOneScreenshots.length,
+            'screenshots',
+            mobileScreenshots,
+            twoInOneScreenshots
+        );
+    }
     for (let i = 0; i < pageCount; i += 1) {
         const mobilePage = mobilePages[i];
         const twoInOnePage = twoInOnePages[i];
         const mobileScreen = mobileScreenshots[i];
         const twoInOneScreen = twoInOneScreenshots[i];
+
+        if (runDynamic) {
+            dynamicIssues.push(...detectDynamicPageIssues(
+                i,
+                mobilePage,
+                twoInOnePage,
+                mobileScreen,
+                twoInOneScreen
+            ));
+        }
 
         if (runFullWidth) {
             const fullWidthFindings = await detectFullWidthIssues(
@@ -152,21 +192,36 @@ export async function compareDynamicLogs(options: CompareOptions): Promise<Compa
         }
     }
 
-    if (runScene) {
+    if (runScene || runDynamic) {
         for (let i = 0; i < transitionCount; i += 1) {
             const mobileTransition = mobileTransitions[i];
             const twoInOneTransition = twoInOneTransitions[i];
             const mobileScreen = getTransitionScreenshot(mobileScreenshots, i);
             const twoInOneScreen = getTransitionScreenshot(twoInOneScreenshots, i);
-            const findings = detectSceneIssues(
-                i,
-                mobileTransition,
-                twoInOneTransition,
-                mobileScreen,
-                twoInOneScreen,
-                sceneSimilarityThreshold
-            );
-            sceneIssues.push(...findings);
+            if (runScene) {
+                const findings = detectSceneIssues(
+                    i,
+                    mobileTransition,
+                    twoInOneTransition,
+                    mobileScreen,
+                    twoInOneScreen,
+                    sceneSimilarityThreshold
+                );
+                sceneIssues.push(...findings);
+            }
+            if (runDynamic) {
+                dynamicIssues.push(...detectDynamicTransitionIssues(
+                    i,
+                    mobileTransition.from,
+                    mobileTransition.to,
+                    mobileTransition.event,
+                    twoInOneTransition.from,
+                    twoInOneTransition.to,
+                    twoInOneTransition.event,
+                    mobileScreen,
+                    twoInOneScreen
+                ));
+            }
         }
     }
 
@@ -175,6 +230,7 @@ export async function compareDynamicLogs(options: CompareOptions): Promise<Compa
         aspectRatioIssues,
         sceneIssues,
         componentDiffIssues,
+        dynamicIssues,
         pageCount,
         transitionCount,
         mobilePages: mobilePages.length,
@@ -196,6 +252,7 @@ export async function compareDynamicLogs(options: CompareOptions): Promise<Compa
     const aspectRatioIssueCount = aspectRatioIssues.length;
     const sceneIssueCount = sceneIssues.length;
     const componentDiffIssueCount = componentDiffIssues.length;
+    const dynamicIssueCount = dynamicIssues.length;
 
     if (detector === 'all') {
         const totalIssues = fullWidthIssueCount + aspectRatioIssueCount + sceneIssueCount + componentDiffIssueCount;
@@ -204,6 +261,7 @@ export async function compareDynamicLogs(options: CompareOptions): Promise<Compa
         issueCounters.push(`AspectRatioIssues=${aspectRatioIssueCount}`);
         issueCounters.push(`SceneIssues=${sceneIssueCount}`);
         issueCounters.push(`ComponentDiffIssues=${componentDiffIssueCount}`);
+        issueCounters.push(`DynamicIssues=${dynamicIssueCount}`);
     } else {
         if (runFullWidth) {
             issueCounters.push(`FullWidthIssues=${fullWidthIssueCount}`);
@@ -216,6 +274,9 @@ export async function compareDynamicLogs(options: CompareOptions): Promise<Compa
         }
         if (runDiff) {
             issueCounters.push(`ComponentDiffIssues=${componentDiffIssueCount}`);
+        }
+        if (runDynamic) {
+            issueCounters.push(`DynamicIssues=${dynamicIssueCount}`);
         }
     }
     const detectorSummary = issueCounters.join(', ');
@@ -231,4 +292,27 @@ function getTransitionScreenshot(screenshots: string[], transitionIndex: number)
         return '';
     }
     return screenshots[Math.min(transitionIndex + 1, screenshots.length - 1)];
+}
+
+function appendSequenceMismatch(
+    issues: CompareDynamicIssue[],
+    mobileCount: number,
+    twoInOneCount: number,
+    sequenceName: string,
+    mobileScreenshots: string[],
+    twoInOneScreenshots: string[]
+): void {
+    if (mobileCount === twoInOneCount) {
+        return;
+    }
+    issues.push({
+        kind: 'sequence-length-mismatch',
+        pageIndex: 0,
+        device: 'both',
+        reason: `${sequenceName} count differs: mobile=${mobileCount}, 2in1=${twoInOneCount}`,
+        mobilePagePath: '',
+        twoInOnePagePath: '',
+        mobileScreenshot: mobileScreenshots[0] ?? '',
+        twoInOneScreenshot: twoInOneScreenshots[0] ?? '',
+    });
 }

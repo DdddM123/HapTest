@@ -2,12 +2,13 @@
 
 本目录提供 `haptest compare` 动态日志对比能力，主要用于对比 `mobile` 与 `2in1` 两端执行同一应用后的 UI 一致性问题。
 
-当前可检测 4 类问题：
+当前可检测 5 类问题：
 
 - full-width：检测同一组件是否都为横向铺满
 - ratio：检测同一组件宽高比是否明显变化
 - scene：检测同一事件前后业务场景是否发生偏移
 - diff：对已匹配到的同一组件逐字段比对，任何字段差异都会上报
+- dynamic：检测页面身份、输入事件和交互控件在窗口变化场景下的连续性
 
 并支持可选 AI 组件匹配：开启后组件匹配阶段仅使用 AI 判定，不再执行 `type + key/id` 精确匹配。
 
@@ -81,7 +82,7 @@ haptest compare -a com.demo.app \
 
 ### 3.1 all（一次跑完全部检测）
 
-用途：一次执行 `full-width + ratio + scene + diff` 四类检测。
+用途：一次执行 `full-width + ratio + scene + diff + dynamic` 五类检测。
 
 运行方式：
 
@@ -192,7 +193,7 @@ haptest compare -a com.demo.app --detector scene
 | `--tolerance <number>` | number | `1` | full-width 检测像素容差 |
 | `--ratioTolerance <number>` | number | `0.01` | ratio 检测宽高比容差 |
 | `--sceneSimilarityThreshold <number>` | number | `0.35` | scene 检测场景相似度阈值 |
-| `--detector <name>` | enum | `all` | 运行检测器：`all \| full-width \| ratio \| scene \| diff` |
+| `--detector <name>` | enum | `all` | 运行检测器：`all \| full-width \| ratio \| scene \| diff \| dynamic` |
 | `--aiComponentMatch` | boolean | `false` | 开启 AI 组件匹配（不再做精确匹配） |
 | `--aiComponentModel <name>` | string | `openrouter/free` | AI 匹配模型名 |
 | `--aiComponentThreshold <number>` | number | `0.6` | AI 判定为同一组件的最小置信度 |

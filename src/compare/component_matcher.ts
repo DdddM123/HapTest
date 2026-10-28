@@ -45,7 +45,7 @@ export interface ComponentMatchOptions {
 
 export function buildComponentNameMap(page: Page): Map<string, Component[]> {
     const map = new Map<string, Component[]>();
-    for (const component of page.getComponents()) {
+    for (const component of getComparableComponents(page)) {
         const matchKey = buildTypeAndIdentityMatchKey(component);
         if (!matchKey) {
             continue;
@@ -62,13 +62,14 @@ export function buildComponentNameMap(page: Page): Map<string, Component[]> {
 
 export function buildComponentParentMap(page: Page): Map<string, ComponentWithParent[]> {
     const map = new Map<string, ComponentWithParent[]>();
-    for (const component of page.getComponents()) {
-        const key = buildParentIdentityMatchKey(component);
+    const comparableRoot = getComparableRoot(page);
+    for (const component of getComparableComponents(page)) {
+        const key = buildParentIdentityMatchKey(component, comparableRoot);
         if (!key) {
             continue;
         }
-        const componentName = getIdentityLabel(component);
-        const parentName = component.parent ? getIdentityLabel(component.parent) : 'ROOT';
+        const componentName = getMatchLabel(component);
+        const parentName = component === comparableRoot ? 'ROOT' : getMatchLabel(component.parent);
         if (!componentName || !parentName) {
             continue;
         }
@@ -85,6 +86,43 @@ export function buildComponentParentMap(page: Page): Map<string, ComponentWithPa
         }
     }
     return map;
+}
+
+export function getComparableRoot(page: Page): Component {
+    const root = page.getRoot();
+    if (root.type === 'root') {
+        return root.children.length === 1 ? root.children[0] : root;
+    }
+    if (root.type !== 'ContainerModal') {
+        return root;
+    }
+    const stack = findComponent(root, (component) => component.type === 'Stack');
+    return stack?.children.find((child) => child.type !== 'Row') ?? stack ?? root;
+}
+
+function getComparableComponents(page: Page): Component[] {
+    const components: Component[] = [];
+    const walk = (component: Component) => {
+        components.push(component);
+        for (const child of component.children) {
+            walk(child);
+        }
+    };
+    walk(getComparableRoot(page));
+    return components;
+}
+
+function findComponent(component: Component, predicate: (candidate: Component) => boolean): Component | undefined {
+    if (predicate(component)) {
+        return component;
+    }
+    for (const child of component.children) {
+        const match = findComponent(child, predicate);
+        if (match) {
+            return match;
+        }
+    }
+    return undefined;
 }
 
 export async function matchComponentNameMaps(
@@ -288,16 +326,12 @@ function buildTypeAndIdentityMatchKey(component: Component): string | undefined 
     if (!type) {
         return undefined;
     }
-    const keyOrId = getIdentityLabel(component);
-    if (!keyOrId) {
-        return undefined;
-    }
-    return `${type}::${keyOrId}`;
+    return `${type}::${getMatchLabel(component)}`;
 }
 
-function buildParentIdentityMatchKey(component: Component): string | undefined {
-    const componentIdentity = getIdentityLabel(component);
-    const parentIdentity = component.parent ? getIdentityLabel(component.parent) : 'ROOT';
+function buildParentIdentityMatchKey(component: Component, comparableRoot: Component): string | undefined {
+    const componentIdentity = getMatchLabel(component);
+    const parentIdentity = component === comparableRoot ? 'ROOT' : getMatchLabel(component.parent);
     if (!componentIdentity || !parentIdentity) {
         return undefined;
     }
@@ -310,6 +344,22 @@ function getIdentityLabel(component: Component): string | undefined {
         return undefined;
     }
     return identity;
+}
+
+function getMatchLabel(component?: Component | null): string | undefined {
+    if (!component) {
+        return undefined;
+    }
+    const identity = getIdentityLabel(component);
+    if (identity) {
+        return identity;
+    }
+    const semanticText = (component.text ?? component.hint ?? '').trim();
+    if (semanticText) {
+        return `text:${semanticText}`;
+    }
+    const type = component.type?.trim();
+    return type ? `type:${type}` : undefined;
 }
 
 function pickRepresentativeComponent(components: Component[]): Component | undefined {

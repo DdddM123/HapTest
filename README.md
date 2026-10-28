@@ -120,7 +120,7 @@ haptest -i com.example.demo --policy static_guided --staticConfig config.json --
 1. Make sure both simulators are already on the same app and the same page.
 2. Run the sync command with two connectkeys:
   ```
-  haptest sync -i com.huawei.hmos.browser --left phone-001 --right pc-001 --from-current-page -o out/sync
+  haptest sync --app com.huawei.hmos.browser --left phone-001 --right pc-001 --from-current-page -o out/sync
   ```
 3. The command executes the same step on both devices, compares page signatures after each step, and writes the final result to `out/sync/sync-result.json`.
 4. If the pages diverge at any step, the command stops both sessions and returns `consistent: false`.

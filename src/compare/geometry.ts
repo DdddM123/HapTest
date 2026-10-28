@@ -4,28 +4,35 @@ import { Point } from '../model/point';
 import { BoundsBox, ScreenRect } from './types';
 
 export function getScreenRect(page: Page): ScreenRect | undefined {
-    const root = page.getRoot();
-    const rootRect = getBoundsRect(root.bounds ?? root.origBounds);
-    if (rootRect && rootRect.right > rootRect.left) {
-        return rootRect;
+    const box = getScreenBox(page);
+    return box ? { left: box.left, right: box.right } : undefined;
+}
+
+export function getScreenBox(page: Page): BoundsBox | undefined {
+    const rootBox = getBoundsBox(page.getRoot().bounds ?? page.getRoot().origBounds);
+    if (rootBox && rootBox.right > rootBox.left && rootBox.bottom > rootBox.top) {
+        return rootBox;
     }
 
-    let minX = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
+    let screenBox: BoundsBox | undefined;
     for (const component of page.getComponents()) {
-        const rect = getBoundsRect(component.bounds ?? component.origBounds);
-        if (!rect) {
+        const box = getBoundsBox(component.bounds ?? component.origBounds);
+        if (!box) {
             continue;
         }
-        minX = Math.min(minX, rect.left);
-        maxX = Math.max(maxX, rect.right);
+        screenBox = screenBox
+            ? {
+                  left: Math.min(screenBox.left, box.left),
+                  right: Math.max(screenBox.right, box.right),
+                  top: Math.min(screenBox.top, box.top),
+                  bottom: Math.max(screenBox.bottom, box.bottom),
+              }
+            : box;
     }
 
-    if (!Number.isFinite(minX) || !Number.isFinite(maxX) || maxX <= minX) {
-        return undefined;
-    }
-
-    return { left: minX, right: maxX };
+    return screenBox && screenBox.right > screenBox.left && screenBox.bottom > screenBox.top
+        ? screenBox
+        : undefined;
 }
 
 export function getBoundsRect(bounds?: Point[]): ScreenRect | undefined {

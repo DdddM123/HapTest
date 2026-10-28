@@ -1,7 +1,7 @@
 import { Event } from '../event/event';
 import { Page } from '../model/page';
 
-export type CompareDetector = 'all' | 'full-width' | 'ratio' | 'scene' | 'diff';
+export type CompareDetector = 'all' | 'full-width' | 'ratio' | 'scene' | 'diff' | 'dynamic';
 
 export interface CompareOptions {
     outputRoot: string;
@@ -73,11 +73,32 @@ export interface CompareComponentDiffIssue {
     diffs: CompareComponentDiffGroups;
 }
 
+export type CompareDynamicIssueKind =
+    | 'page-identity-mismatch'
+    | 'event-type-mismatch'
+    | 'interactive-component-unusable'
+    | 'interactive-component-out-of-window'
+    | 'sequence-length-mismatch';
+
+export interface CompareDynamicIssue {
+    kind: CompareDynamicIssueKind;
+    pageIndex: number;
+    transitionIndex?: number;
+    device: 'mobile' | '2in1' | 'both';
+    componentName?: string;
+    reason: string;
+    mobilePagePath: string;
+    twoInOnePagePath: string;
+    mobileScreenshot: string;
+    twoInOneScreenshot: string;
+}
+
 export interface CompareResult {
     issues: CompareIssue[];
     aspectRatioIssues: CompareAspectRatioIssue[];
     sceneIssues: CompareSceneIssue[];
     componentDiffIssues: CompareComponentDiffIssue[];
+    dynamicIssues: CompareDynamicIssue[];
     pageCount: number;
     transitionCount: number;
     mobilePages: number;

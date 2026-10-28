@@ -116,4 +116,33 @@ describe('detectComponentDiffIssues', () => {
         expect(statusFields).toContain('visible');
         expect(textFields).toContain('text');
     });
+
+    it('reports child collection, order, and interactive presence differences', async () => {
+        const mobilePage = createPage([
+            createComponent('Column', {
+                key: 'container',
+                children: [
+                    createComponent('Button', { text: '开始' }),
+                    createComponent('Button', { text: '重置' }),
+                ],
+            }),
+        ]);
+        const twoInOnePage = createPage([
+            createComponent('Column', {
+                key: 'container',
+                children: [
+                    createComponent('Button', { text: '重置' }),
+                    createComponent('Button', { text: '开始' }),
+                    createComponent('Button', { text: '额外操作' }),
+                ],
+            }),
+        ]);
+
+        const issues = await detectComponentDiffIssues(2, mobilePage, twoInOnePage, 'mobile.png', '2in1.png');
+        const structuralFields = issues.flatMap((issue) => issue.diffs.structuralDiffs.map((diff) => diff.field));
+
+        expect(structuralFields).toContain('child-component-order');
+        expect(structuralFields).toContain('child-component-set');
+        expect(structuralFields).toContain('interactive-component-presence');
+    });
 });

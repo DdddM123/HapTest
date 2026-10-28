@@ -54,6 +54,33 @@ class MockAiMatcher implements AiComponentMatcher {
 }
 
 describe('component_matcher ai fallback', () => {
+    it('matches application content inside a PC ContainerModal without window controls', () => {
+        const mobileRoot = createComponent('root', {
+            children: [createComponent('Column', {
+                children: [createComponent('Button', { text: '开始辅助操作' })],
+            })],
+        });
+        const mobilePage = new Page(new ViewTree(mobileRoot), 'Ability', 'com.example.demo', 'pages/index');
+        const appColumn = createComponent('Column', {
+            children: [createComponent('Button', { text: '开始辅助操作' })],
+        });
+        const windowRoot = createComponent('ContainerModal', {
+            children: [
+                createComponent('DecorBar', { id: 'ContainerModalTitleRow' }),
+                createComponent('Stack', { children: [appColumn] }),
+                createComponent('Button', { id: 'EnhanceCloseBtn' }),
+            ],
+        });
+        const twoInOnePage = new Page(new ViewTree(windowRoot), 'Ability', 'com.example.demo', 'pages/index');
+
+        const mobileMap = buildComponentParentMap(mobilePage);
+        const twoInOneMap = buildComponentParentMap(twoInOnePage);
+        const matches = [...mobileMap.keys()].filter((key) => twoInOneMap.has(key));
+
+        expect(matches.some((key) => key.includes('开始辅助操作'))).toBe(true);
+        expect([...twoInOneMap.keys()].some((key) => key.includes('EnhanceCloseBtn'))).toBe(false);
+    });
+
     it('uses ai fallback for name map when identity differs', async () => {
         const mobilePage = createPage([
             createComponent('Button', { key: 'btn_login_mobile', text: '登录' }),

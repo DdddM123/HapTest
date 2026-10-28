@@ -151,8 +151,8 @@ async function runCompareCommand(options: any): Promise<void> {
     fs.mkdirSync(reportDir, { recursive: true });
     HapTestLogger.configure(path.join(reportDir, 'haptest.log'), logLevel);
 
-    if (!['all', 'full-width', 'ratio', 'scene', 'diff'].includes(detector)) {
-        throw new Error(`Invalid detector: ${options.detector}. Use one of: all, full-width, ratio, scene, diff.`);
+    if (!['all', 'full-width', 'ratio', 'scene', 'diff', 'dynamic'].includes(detector)) {
+        throw new Error(`Invalid detector: ${options.detector}. Use one of: all, full-width, ratio, scene, diff, dynamic.`);
     }
 
     await compareDynamicLogs({
@@ -225,7 +225,7 @@ async function runScreenCommand(options: any): Promise<void> {
         .option('--tolerance <number>', 'full width tolerance in px', '1')
         .option('--ratioTolerance <number>', 'aspect ratio tolerance', '0.01')
         .option('--sceneSimilarityThreshold <number>', 'business scene similarity threshold', '0.35')
-        .option('--detector <name>', 'detector to run: all | full-width | ratio | scene | diff', 'all')
+        .option('--detector <name>', 'detector to run: all | full-width | ratio | scene | diff | dynamic', 'all')
         .option('--aiComponentMatch', 'enable AI fallback to judge whether two components are the same', false)
         .option('--aiComponentModel <name>', 'AI model used for component matching', 'openrouter/free')
         .option('--aiComponentThreshold <number>', 'minimum AI confidence to accept a matched component pair', '0.6')
@@ -258,7 +258,7 @@ async function runScreenCommand(options: any): Promise<void> {
     program
         .description('HapTest fuzz runner')
         .option('-i, --hap <items...>', 'HAP bundle name or HAP file path or HAP project source root (can specify multiple)')
-        .option('-o --output <dir>', 'output dir', 'out')
+        .option('-o, --output <dir>', 'output dir', 'out')
         .option('--policy <policyName>', 'policy name', 'manu')
         .option('-t --target [connectkey]', 'hdc connectkey', undefined)
         .option('-c --coverage', 'enable coverage', false)
@@ -284,7 +284,7 @@ async function runScreenCommand(options: any): Promise<void> {
         .description('Run HapTest concurrently on multiple simulators or devices')
         .requiredOption('-i, --hap <item>', 'single HAP bundle name, HAP file path, or HAP project source root shared by all targets')
         .requiredOption('-d, --devices <file>', 'JSON config file that lists multi-device targets')
-        .option('-o --output <dir>', 'base output dir', 'out/multi')
+        .option('-o, --output <dir>', 'base output dir', 'out/multi')
         .option('--policy <policyName>', 'policy name', 'manu')
         .option('-c --coverage', 'enable coverage', false)
         .option('--report [report root]', 'report root')
@@ -307,10 +307,10 @@ async function runScreenCommand(options: any): Promise<void> {
     program
         .command('sync')
         .description('Run the same actions in lockstep on two simulators or devices and return whether they stay consistent')
-        .requiredOption('-i, --hap <item>', 'single HAP bundle name, HAP file path, or HAP project source root shared by both devices')
+        .requiredOption('--app <item>', 'single HAP bundle name, HAP file path, or HAP project source root shared by both devices')
         .requiredOption('--left <connectkey>', 'connectkey of the left device')
         .requiredOption('--right <connectkey>', 'connectkey of the right device')
-        .option('-o --output <dir>', 'base output dir', 'out/sync')
+        .option('-o, --output <dir>', 'base output dir', 'out/sync')
         .option('--policy <policyName>', 'policy name', 'manu')
         .option('-c --coverage', 'enable coverage', false)
         .option('--report [report root]', 'report root')
