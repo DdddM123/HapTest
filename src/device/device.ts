@@ -46,6 +46,8 @@ export interface DeviceOptions {
     hap?: string;
     coverage?: boolean;
     sourceRoot?: string;
+    deviceType?: string;
+    startFromCurrentPage?: boolean;
 }
 
 export class Device implements EventSimulator {
@@ -110,7 +112,7 @@ export class Device implements EventSimulator {
         return rawDeviceTypeOpt.trim().toLowerCase() === '2in1';
     }
 
-    getOptions(): FuzzOptions {
+    getOptions(): DeviceOptions {
         return this.options;
     }
 
@@ -381,7 +383,7 @@ export class Device implements EventSimulator {
                 } else {
                     logger.debug('2in1 设备：未检测到输入法页面，跳过键盘处理');
                 }
-            } else if (this.closeKeyboard(pages)) {
+            } else if (await this.closeKeyboard(pages)) {
                 logger.info('Keyboard detected during dumpViewTree, sending hide event and retrying.');
                 // for sleep
                 this.hdc.getDeviceUdid();

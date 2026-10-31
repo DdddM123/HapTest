@@ -228,7 +228,8 @@ async function initializeDevice(deviceOptions: FuzzOptions): Promise<SyncDeviceC
     deviceOptions.deviceType = device.getDeviceType();
 
     const hap = device.buildHap(deviceOptions.sourceRoot, deviceOptions.hapFile, deviceOptions.bundleName);
-    await device.connect(hap);
+    device.prepareTest(hap);
+    await device.connect();
 
     const page = await device.getCurrentPage(hap, true);
     return { device, options: deviceOptions, hap, page };

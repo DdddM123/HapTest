@@ -181,6 +181,8 @@ async function runMultiDeviceCommand(options: any): Promise<void> {
 async function runSyncDeviceCommand(options: any): Promise<void> {
     await runSyncCommand(options);
     process.exit();
+}
+
 async function runScreenCommand(options: any): Promise<void> {
     const outputDir = path.resolve(options.output ?? 'out/screen');
     fs.mkdirSync(outputDir, { recursive: true });

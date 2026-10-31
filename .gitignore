@@ -10,3 +10,4 @@ package-lock.json
 out/
 out[0-9]*/
 haps/
+.env
