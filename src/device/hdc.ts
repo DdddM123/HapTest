@@ -385,7 +385,11 @@ export class Hdc {
     }
 
     excuteShellCommandSync(...args: string[]): string {
-        return this.excuteSync('shell', ...args).stdout;
+        return this.excuteShellCommandSyncResult(...args).stdout;
+    }
+
+    excuteShellCommandSyncResult(...args: string[]): SpawnSyncReturns<string> {
+        return this.excuteSync('shell', ...args);
     }
 
     excuteSync(command: string, ...params: string[]): SpawnSyncReturns<string> {
@@ -397,7 +401,7 @@ export class Hdc {
         logger.debug(`hdc excute: ${JSON.stringify(args)}`);
         let result = spawnSync('hdc', args, { encoding: 'utf-8', shell: true });
         logger.debug(`hdc result: ${JSON.stringify(result)}`);
-        if (result.stdout.trim() === '[Fail]ExecuteCommand need connect-key? please confirm a device by help info') {
+        if (result.stdout?.trim() === '[Fail]ExecuteCommand need connect-key? please confirm a device by help info') {
             throw new Error(`hdc ${result.stdout}`);
         }
         return result;

@@ -28,6 +28,7 @@ import { HypiumRpc } from './hypium_rpc';
 const RPC_PORT = 8012;
 const UNIX_SOCKET_NAME = 'uitest_socket';
 const DEVICE_AGENT_FILE = '/data/local/tmp/agent.so';
+const AGENT_VERSION_PATTERN = 'UITEST_AGENT_LIBRARY@[[:alnum:].#]*';
 const logger = getLogger();
 
 export class UitestAgent {
@@ -110,14 +111,27 @@ export class UitestAgent {
 
     private isRunning(transport: AgentTransport): boolean {
         const output = transport === 'unix'
-            ? this.hdc.excuteShellCommandSync(`cat /proc/net/unix | grep ${UNIX_SOCKET_NAME}`)
-            : this.hdc.excuteShellCommandSync(`netstat -atn | grep :${RPC_PORT}`);
+            ? this.getDaemonCommandOutput('cat /proc/net/unix')
+            : this.getDaemonCommandOutput('netstat -atn');
         if (transport === 'unix') {
             return output.split(NEWLINE).some((line) => line.includes(UNIX_SOCKET_NAME));
         }
         return output.split(NEWLINE).some((line) =>
             new RegExp(`\\b:${RPC_PORT}\\b.*\\bLISTEN\\b`).test(line)
         );
+    }
+
+    private getDaemonCommandOutput(command: string): string {
+        const result = this.hdc.excuteShellCommandSyncResult(command);
+        if (result.status !== 0 || result.signal || result.error || typeof result.stdout !== 'string') {
+            throw new Error(
+                `Uitest daemon probe command failed: command=${JSON.stringify(command)}, ` +
+                `status=${result.status}, signal=${result.signal ?? 'none'}, ` +
+                `error=${result.error?.message ?? 'none'}, ` +
+                `stdout=${JSON.stringify(result.stdout)}, stderr=${JSON.stringify(result.stderr)}.`
+            );
+        }
+        return result.stdout;
     }
 
     private inspectAgent(profile: AgentProfile): { version?: string; reasons: string[] } {
@@ -143,7 +157,7 @@ export class UitestAgent {
             return { reasons: ['agent file is missing'], fileInfo: '' };
         }
         const marker = this.hdc.excuteShellCommandSync(
-            `grep -a -o 'UITEST_AGENT_LIBRARY@[^[:space:]]*' ${DEVICE_AGENT_FILE}`
+            `grep -a -o '${AGENT_VERSION_PATTERN}' ${DEVICE_AGENT_FILE}`
         );
         const installedFileInfo = this.hdc.excuteShellCommandSync(`file ${DEVICE_AGENT_FILE}`);
         const { version, reasons } =
@@ -169,20 +183,38 @@ export class UitestAgent {
     }
 
     private getDaemonPids(): string[] {
-        const output = this.hdc.excuteShellCommandSync("ps -ef | grep '[u]itest start-daemon singleness'");
-        return output.split(NEWLINE).flatMap((line) => {
-            if (!line.includes('uitest start-daemon singleness')) {
+        const output = this.getDaemonCommandOutput('ps -ef');
+        const lines = output.split(NEWLINE);
+        const header = lines.find((line) => /^\s*(?:UID|USER)\s+PID\b/.test(line));
+        const commandColumn = header?.trim().split(/\s+/).findIndex((field) =>
+            /^(?:CMD|COMMAND|CMDLINE|ARGS|NAME)$/.test(field)
+        );
+        const commandIndex = commandColumn !== undefined && commandColumn >= 0 ? commandColumn : 7;
+        return lines.flatMap((line) => {
+            const fields = line.trim().split(/\s+/);
+            const processArgs = fields.slice(commandIndex);
+            if (!/^\d+$/.test(fields[1] ?? '') || processArgs.length !== 3 ||
+                path.posix.basename(processArgs[0]) !== 'uitest' ||
+                processArgs[1] !== 'start-daemon' || processArgs[2] !== 'singleness') {
                 return [];
             }
-            const match = line.match(/^\s*\S+\s+(\d+)\s+/);
-            return match ? [match[1]] : [];
+            return [fields[1]];
         });
     }
 
     private async waitForDaemon(transport: AgentTransport): Promise<void> {
         const deadline = Date.now() + 10000;
         while (Date.now() < deadline) {
-            if (this.isRunning(transport)) {
+            let running: boolean;
+            try {
+                running = this.isRunning(transport);
+            } catch (error) {
+                throw new Error(
+                    `Uitest daemon ${transport} endpoint probe failed: ` +
+                    (error instanceof Error ? error.message : String(error))
+                );
+            }
+            if (running) {
                 return;
             }
             await new Promise((resolve) => setTimeout(resolve, 250));
@@ -203,7 +235,7 @@ export class UitestAgent {
         }
 
         const marker = this.hdc.excuteShellCommandSync(
-            `grep -a -o 'UITEST_AGENT_LIBRARY@[^[:space:]]*' ${DEVICE_AGENT_FILE}`
+            `grep -a -o '${AGENT_VERSION_PATTERN}' ${DEVICE_AGENT_FILE}`
         );
         const installedFileInfo = this.hdc.excuteShellCommandSync(`file ${DEVICE_AGENT_FILE}`);
         const { version: installedVersion, reasons } =
