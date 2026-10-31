@@ -3,21 +3,23 @@ import { Component } from '../../model/component';
 import { Page } from '../../model/page';
 import { getBoundsBox, getScreenBox } from '../geometry';
 import { CompareDynamicIssue } from '../types';
+import { checkOperationPages, OperationPageCheckResult } from '../operation_page_checker';
 
 export function detectDynamicPageIssues(
     pageIndex: number,
     mobilePage: Page,
     twoInOnePage: Page,
     mobileScreenshot: string,
-    twoInOneScreenshot: string
+    twoInOneScreenshot: string,
+    pageCheck: OperationPageCheckResult = checkOperationPages(mobilePage, twoInOnePage)
 ): CompareDynamicIssue[] {
     const issues: CompareDynamicIssue[] = [];
-    if (!samePageIdentity(mobilePage, twoInOnePage)) {
+    if (pageCheck.decision === 'DIFFERENT_PAGE') {
         issues.push({
             kind: 'page-identity-mismatch',
             pageIndex,
             device: 'both',
-            reason: 'mobile and 2in1 reached different application pages',
+            reason: `${pageCheck.rule}: ${pageCheck.reason}`,
             mobilePagePath: mobilePage.getPagePath(),
             twoInOnePagePath: twoInOnePage.getPagePath(),
             mobileScreenshot,
@@ -155,12 +157,6 @@ function buildComponentIssue(
         mobileScreenshot,
         twoInOneScreenshot,
     };
-}
-
-function samePageIdentity(left: Page, right: Page): boolean {
-    return left.getBundleName() === right.getBundleName() &&
-        left.getAbilityName() === right.getAbilityName() &&
-        left.getPagePath() === right.getPagePath();
 }
 
 function getEventType(event: Event | undefined): string | undefined {

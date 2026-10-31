@@ -8,7 +8,7 @@ import { Page } from '../../src/model/page';
 import { ViewTree } from '../../src/model/viewtree';
 import { TouchEvent } from '../../src/event/ui_event';
 
-function createPage(text: string): Page {
+function createPage(text: string, titleText = 'Home'): Page {
     const root = new Component();
     root.type = 'Root';
     root.key = 'root';
@@ -17,6 +17,12 @@ function createPage(text: string): Page {
         { x: 0, y: 0 },
         { x: 100, y: 100 },
     ];
+    const title = new Component();
+    title.type = 'Text';
+    title.id = 'page-title';
+    title.text = titleText;
+    title.parent = root;
+    root.addChild(title);
     return new Page(new ViewTree(root), 'MainAbility', 'com.example.demo', 'pages/Home');
 }
 
@@ -75,11 +81,44 @@ describe('diagnoseSyncStep', () => {
 
     it('reports different page identities as functional issues', async () => {
         const left = createPage('same');
-        const right = new Page(new ViewTree(left.getRoot()), 'MainAbility', 'com.example.demo', 'pages/Settings');
+        const settings = createPage('same', 'Settings');
+        const right = new Page(new ViewTree(settings.getRoot()), 'MainAbility', 'com.example.demo', 'pages/Settings');
 
         const result = await diagnoseSyncStep(0, left, right);
 
         expect(result.functionalIssues.some((issue) => issue.kind === 'page-identity-mismatch')).toBe(true);
+    });
+
+    it('uses the same logical page rules initially and after an event without hiding UI differences', async () => {
+        const left = createPage('same');
+        const adapted = createPage('same');
+        adapted.getRoot().bounds = [{ x: 0, y: 0 }, { x: 300, y: 200 }];
+        const right = new Page(new ViewTree(adapted.getRoot()), 'DesktopAbility', 'com.example.demo', 'pages/Home');
+        const initial = await diagnoseSyncStep(0, left, right);
+        const afterEvent = await diagnoseSyncStep(1, left, right, new TouchEvent({ x: 20, y: 20 }));
+
+        for (const result of [initial, afterEvent]) {
+            expect(result.operationPageCheck.decision).toBe('SAME_PAGE');
+            expect(result.operationPageCheck.rule).toBe('TITLE_MATCH');
+            expect(result.pageMatched).toBe(true);
+            expect(result.consistent).toBe(true);
+            expect(result.uiConsistent).toBe(false);
+            expect(result.functionalIssues).toEqual([]);
+            expect(result.componentDiffs.length).toBeGreaterThan(0);
+        }
+    });
+
+    it('does not label an uncertain page relationship as a confirmed identity mismatch', async () => {
+        const root = new Component();
+        root.type = 'Root';
+        const left = new Page(new ViewTree(root), 'MobileAbility', 'com.example.demo', 'pages/Home');
+        const right = new Page(new ViewTree(root), 'DesktopAbility', 'com.example.demo', 'pages/Home');
+        const result = await diagnoseSyncStep(0, left, right);
+
+        expect(result.operationPageCheck.decision).toBe('UNCERTAIN');
+        expect(result.consistent).toBe(false);
+        expect(result.pageMatched).toBe(false);
+        expect(result.functionalIssues).toEqual([]);
     });
 });
 

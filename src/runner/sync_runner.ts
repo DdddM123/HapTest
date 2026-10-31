@@ -34,8 +34,11 @@ import { CompareComponentDiffIssue, CompareDynamicIssue } from '../compare/types
 import { Component } from '../model/component';
 import { Point } from '../model/point';
 import { SerializeUtils } from '../utils/serialize_utils';
+import { checkOperationPages, OperationPageCheckResult } from '../compare/operation_page_checker';
 
 const EVENT_INTERVAL = 1000;
+const PAGE_CHECK_RETRY_LIMIT = 2;
+const PAGE_CHECK_RETRY_DELAY = 300;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const logger = HapTestLogger.getLogger();
 
@@ -48,7 +51,7 @@ export interface SyncResult {
     leftPageSig: string;
     rightPageSig: string;
     reason?: string;
-    termination: 'ExitEvent' | 'FunctionalMismatch' | 'EventFailure';
+    termination: 'ExitEvent' | 'FunctionalMismatch' | 'EventFailure' | 'PageUncertain' | 'PageCollectionFailed';
     stepResults: SyncStepResult[];
 }
 
@@ -71,6 +74,7 @@ export interface SyncStepResult {
     rightPagePath: string;
     consistent: boolean;
     pageMatched: boolean;
+    operationPageCheck: OperationPageCheckResult;
     uiConsistent: boolean;
     componentDiffs: CompareComponentDiffIssue[];
     functionalIssues: CompareDynamicIssue[];
@@ -78,6 +82,7 @@ export interface SyncStepResult {
 }
 
 interface SyncStepContext {
+    targetBundleName?: string;
     leftBeforePage?: Page;
     rightBeforePage?: Page;
     leftEvent?: Event;
@@ -254,6 +259,7 @@ export async function diagnoseSyncStep(
     context: SyncStepContext = {}
 ): Promise<SyncStepResult> {
     const comparison = compareSyncPages(leftPage, rightPage);
+    const operationPageCheck = checkOperationPages(leftPage, rightPage, context.targetBundleName);
     const leftScreenshot = leftPage.getSnapshot()?.screenCapPath ?? '';
     const rightScreenshot = rightPage.getSnapshot()?.screenCapPath ?? '';
     const componentDiffs = await detectComponentDiffIssues(
@@ -268,9 +274,10 @@ export async function diagnoseSyncStep(
         leftPage,
         rightPage,
         leftScreenshot,
-        rightScreenshot
+        rightScreenshot,
+        operationPageCheck
     );
-    const pageMatched = samePageIdentity(leftPage, rightPage);
+    const pageMatched = operationPageCheck.decision === 'SAME_PAGE';
     const leftBeforePage = context.leftBeforePage ?? leftPage;
     const rightBeforePage = context.rightBeforePage ?? rightPage;
     return {
@@ -292,6 +299,7 @@ export async function diagnoseSyncStep(
         rightPagePath: rightPage.getPagePath(),
         consistent: pageMatched && functionalIssues.length === 0,
         pageMatched,
+        operationPageCheck,
         uiConsistent: comparison.consistent,
         componentDiffs,
         functionalIssues,
@@ -315,10 +323,45 @@ function getExecutionError(error: unknown): SyncExecutionError {
     return { leftError: String(error), rightError: String(error) };
 }
 
-function samePageIdentity(left: Page, right: Page): boolean {
-    return left.getBundleName() === right.getBundleName() &&
-        left.getAbilityName() === right.getAbilityName() &&
-        left.getPagePath() === right.getPagePath();
+async function evaluatePagePair(
+    left: SyncDeviceContext,
+    right: SyncDeviceContext,
+    leftPage: Page,
+    rightPage: Page,
+    step: number,
+    event?: Event,
+    context: SyncStepContext = {}
+): Promise<{ leftPage: Page; rightPage: Page; result: SyncStepResult }> {
+    context = { ...context, targetBundleName: left.hap.bundleName };
+    let result = await diagnoseSyncStep(step, leftPage, rightPage, event, undefined, context);
+    for (let attempt = 0; attempt < PAGE_CHECK_RETRY_LIMIT && result.operationPageCheck.decision === 'UNCERTAIN'; attempt += 1) {
+        logger.info(`[sync-page-check] step=${step} decision=UNCERTAIN rule=${result.operationPageCheck.rule} action=RECOLLECT attempt=${attempt + 1}/${PAGE_CHECK_RETRY_LIMIT}`);
+        await sleep(PAGE_CHECK_RETRY_DELAY);
+        try {
+            [leftPage, rightPage] = await Promise.all([
+                left.device.getCurrentPage(left.hap, true),
+                right.device.getCurrentPage(right.hap, true),
+            ]);
+            result = await diagnoseSyncStep(step, leftPage, rightPage, event, undefined, context);
+        } catch (error) {
+            result.operationPageCheck = {
+                ...result.operationPageCheck,
+                source: 'COLLECTION',
+                rule: 'COLLECTION_INVALID',
+                reason: 'Page recollection failed while resolving an uncertain operation-page decision.',
+                unresolvedIssues: [...result.operationPageCheck.unresolvedIssues, String(error)],
+            };
+            break;
+        }
+    }
+    logger.info(`[sync-page-check] step=${step} phase=${step === 0 ? 'initial' : 'after_event'} decision=${result.operationPageCheck.decision} rule=${result.operationPageCheck.rule} reason=${JSON.stringify(result.operationPageCheck.reason)} evidence=${JSON.stringify(result.operationPageCheck.evidence)} action=${result.consistent ? 'CONTINUE' : 'STOP'}`);
+    return { leftPage, rightPage, result };
+}
+
+function pageCheckTermination(step: SyncStepResult): SyncResult['termination'] | undefined {
+    if (step.operationPageCheck.source === 'COLLECTION') return 'PageCollectionFailed';
+    if (step.operationPageCheck.decision === 'UNCERTAIN') return 'PageUncertain';
+    return step.functionalIssues.length > 0 ? 'FunctionalMismatch' : undefined;
 }
 
 async function stopDevice(device: Device): Promise<void> {
@@ -367,14 +410,16 @@ export function writeSyncMarkdownReport(reportPath: string, result: SyncResult):
         '# Sync Issue Summary',
         '',
         `- Status: ${result.status}`,
+        `- Termination: ${result.termination}`,
+        `- Reason: ${result.reason ?? ''}`,
         `- UI consistent: ${result.uiConsistent ? 'yes' : 'no'}`,
         `- Issue steps: ${result.stepResults.filter((stepResult) =>
-            stepResult.componentDiffs.length > 0 || stepResult.functionalIssues.length > 0
+            stepResult.componentDiffs.length > 0 || stepResult.functionalIssues.length > 0 || stepResult.operationPageCheck?.decision === 'UNCERTAIN'
         ).length}`,
         '',
     ];
     const issueSteps = result.stepResults.filter((stepResult) =>
-        stepResult.componentDiffs.length > 0 || stepResult.functionalIssues.length > 0
+        stepResult.componentDiffs.length > 0 || stepResult.functionalIssues.length > 0 || stepResult.operationPageCheck?.decision === 'UNCERTAIN'
     );
 
     if (issueSteps.length === 0) {
@@ -383,6 +428,15 @@ export function writeSyncMarkdownReport(reportPath: string, result: SyncResult):
         for (const stepResult of issueSteps) {
             lines.push(`## Step ${stepResult.step}`, '');
             appendMarkdownScreenshots(lines, reportPath, stepResult);
+
+            if (stepResult.operationPageCheck) {
+                const check = stepResult.operationPageCheck;
+                lines.push('### Operation page decision', '', `- ${check.decision} (${check.rule}): ${escapeMarkdown(check.reason)}`);
+                for (const evidence of [...check.evidence, ...check.unresolvedIssues]) {
+                    lines.push(`- ${escapeMarkdown(evidence)}`);
+                }
+                lines.push('');
+            }
 
             if (stepResult.componentDiffs.length > 0) {
                 lines.push('### UI differences', '');
@@ -413,9 +467,9 @@ export function writeSyncMarkdownReport(reportPath: string, result: SyncResult):
 
 function appendMarkdownScreenshots(lines: string[], reportPath: string, stepResult: SyncStepResult): void {
     const mobileScreenshot = getMarkdownScreenshotPath(reportPath, stepResult.componentDiffs[0]?.mobileScreenshot
-        || stepResult.functionalIssues[0]?.mobileScreenshot);
+        || stepResult.functionalIssues[0]?.mobileScreenshot || stepResult.operationPageCheck?.leftSummary.collection?.screenshotPath);
     const twoInOneScreenshot = getMarkdownScreenshotPath(reportPath, stepResult.componentDiffs[0]?.twoInOneScreenshot
-        || stepResult.functionalIssues[0]?.twoInOneScreenshot);
+        || stepResult.functionalIssues[0]?.twoInOneScreenshot || stepResult.operationPageCheck?.rightSummary.collection?.screenshotPath);
     if (!mobileScreenshot && !twoInOneScreenshot) {
         return;
     }
@@ -496,13 +550,15 @@ export async function runSyncCommand(options: any): Promise<SyncResult> {
     const rightOptions = createDeviceOptions({ ...options, hap: sharedHap }, options.right, path.join(outputDir, 'right'));
 
     const [left, right] = await Promise.all([initializeDevice(leftOptions), initializeDevice(rightOptions)]);
-    const policy: Policy = PolicyBuilder.buildPolicyByName(left.device, left.hap, left.options);
 
     let steps = 0;
     let currentLeftPage = left.page;
     let currentRightPage = right.page;
     const stepResults: SyncStepResult[] = [];
-    const initialStep = await diagnoseSyncStep(0, currentLeftPage, currentRightPage);
+    const initial = await evaluatePagePair(left, right, currentLeftPage, currentRightPage, 0);
+    currentLeftPage = initial.leftPage;
+    currentRightPage = initial.rightPage;
+    const initialStep = initial.result;
     stepResults.push(initialStep);
     const reportPath = path.join(outputDir, `sync-result-${runId}.json`);
     fs.mkdirSync(baseOutputDir, { recursive: true });
@@ -524,11 +580,12 @@ export async function runSyncCommand(options: any): Promise<SyncResult> {
         currentLeftPage,
         currentRightPage,
         stepResults,
-        'Both devices reached the same application page; synchronized execution is running.',
+        'Initial operation-page check completed; evaluating whether synchronized execution can start.',
         'ExitEvent'
     ));
 
-    if (initialStep.functionalIssues.length > 0) {
+    const initialTermination = pageCheckTermination(initialStep);
+    if (initialTermination) {
         await Promise.all([stopDevice(left.device), stopDevice(right.device)]);
         return finalize(createSyncResult(
             'failed',
@@ -536,12 +593,13 @@ export async function runSyncCommand(options: any): Promise<SyncResult> {
             currentLeftPage,
             currentRightPage,
             stepResults,
-            'Initial pages have different functional identities.',
-            'FunctionalMismatch',
-            0
+            initialTermination === 'FunctionalMismatch' ? 'Initial pages have incompatible functional states.' : initialStep.operationPageCheck.reason,
+            initialTermination,
+            initialTermination === 'FunctionalMismatch' ? 0 : undefined
         ));
     }
 
+    const policy: Policy = PolicyBuilder.buildPolicyByName(left.device, left.hap, left.options);
     while (policy.enabled && !stopRequested) {
         const event = await policy.generateEvent(currentLeftPage);
 
@@ -627,7 +685,7 @@ export async function runSyncCommand(options: any): Promise<SyncResult> {
         currentLeftPage = leftAction.transition.to;
         currentRightPage = rightAction.transition.to;
 
-        const stepResult = await diagnoseSyncStep(steps, currentLeftPage, currentRightPage, event, undefined, {
+        const after = await evaluatePagePair(left, right, currentLeftPage, currentRightPage, steps, event, {
             leftBeforePage: leftAction.transition.from,
             rightBeforePage: rightAction.transition.from,
             leftEvent,
@@ -635,6 +693,9 @@ export async function runSyncCommand(options: any): Promise<SyncResult> {
             leftActionStatus: 'succeeded',
             rightActionStatus: 'succeeded',
         });
+        currentLeftPage = after.leftPage;
+        currentRightPage = after.rightPage;
+        const stepResult = after.result;
         stepResults.push(stepResult);
         writeSyncResult(reportPath, createSyncResult(
             'running',
@@ -645,7 +706,8 @@ export async function runSyncCommand(options: any): Promise<SyncResult> {
             `Synchronized step ${steps} completed.`,
             'ExitEvent'
         ));
-        if (stepResult.functionalIssues.length > 0) {
+        const termination = pageCheckTermination(stepResult);
+        if (termination) {
             await Promise.all([stopDevice(left.device), stopDevice(right.device)]);
             return finalize(createSyncResult(
                 'failed',
@@ -653,9 +715,9 @@ export async function runSyncCommand(options: any): Promise<SyncResult> {
                 currentLeftPage,
                 currentRightPage,
                 stepResults,
-                'Functional page state diverged after synchronized execution.',
-                'FunctionalMismatch',
-                steps
+                termination === 'FunctionalMismatch' ? 'Functional page state diverged after synchronized execution.' : stepResult.operationPageCheck.reason,
+                termination,
+                termination === 'FunctionalMismatch' ? steps : undefined
             ));
         }
     }

@@ -22,13 +22,28 @@ function page(pagePath: string, children: Component[]): Page {
 
 describe('dynamic detector', () => {
     it('reports identity and unusable interactive components', () => {
-        const mobile = page('pages/Home', [component({ type: 'Button', key: 'submit', clickable: true, bounds: [] })]);
-        const twoInOne = page('pages/Profile', []);
+        const mobile = page('pages/Home', [
+            component({ type: 'Text', id: 'page-title', text: 'Home' }),
+            component({ type: 'Button', key: 'submit', clickable: true, bounds: [] }),
+        ]);
+        const twoInOne = page('pages/Profile', [component({ type: 'Text', id: 'page-title', text: 'Profile' })]);
         const issues = detectDynamicPageIssues(0, mobile, twoInOne, 'mobile.png', '2in1.png');
         expect(issues.map((issue) => issue.kind)).toEqual([
             'page-identity-mismatch',
             'interactive-component-unusable',
         ]);
+    });
+
+    it('accepts different Ability entry points when route and semantic page evidence match', () => {
+        const mobile = page('pages/Home', [component({ type: 'Text', id: 'page-title', text: 'Home' })]);
+        const desktop = page('pages/Home', [component({ type: 'Text', id: 'page-title', text: 'Home' })]);
+        const twoInOne = new Page(new ViewTree(desktop.getRoot()), 'DesktopAbility', 'com.example.demo', 'pages/Home');
+        expect(detectDynamicPageIssues(0, mobile, twoInOne, 'left.png', 'right.png')).toEqual([]);
+    });
+
+    it('does not report route-only uncertainty as a confirmed divergence', () => {
+        const issues = detectDynamicPageIssues(0, page('pages/Home', []), page('desktop/Home', []), '', '');
+        expect(issues).toEqual([]);
     });
 
     it('reports event type changes between devices', () => {

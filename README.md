@@ -122,7 +122,9 @@ haptest -i com.example.demo --policy static_guided --staticConfig config.json --
   ```
   haptest sync --app com.huawei.hmos.browser --left phone-001 --right pc-001 --from-current-page -o out/sync
   ```
-3. The command executes the same step on both devices, compares page signatures after each step, and writes the final result to `out/sync/sync-result.json`.
+3. Before exploration and after each synchronized step, the command checks logical operation-page correspondence using the same rules migrated from the local `main` branch. These rules combine target bundle validation, titles, business text, page IDs, and routes. Different Ability entry points do not by themselves prove a page divergence, and layout or component-count differences are not logical page mismatch evidence.
+4. Only `SAME_PAGE` permits exploration to continue. `DIFFERENT_PAGE` records a confirmed page mismatch; `UNCERTAIN` triggers at most two fresh page collections, 300 ms apart, then stops with `PageUncertain` if unresolved. Recollection failures stop with `PageCollectionFailed`, not a confirmed divergence. This sync path does not call an LLM.
+5. Full page signatures and component differences remain separate UI-consistency diagnostics. Results, page-rule evidence, and page summaries are saved under `<output>/<app>-<timestamp>/sync-result-<app>-<timestamp>.json` and the corresponding Markdown report. Existing interactive-component validity checks are unchanged.
 4. If the pages diverge at any step, the command stops both sessions and returns `consistent: false`.
 
 ## Contribution
